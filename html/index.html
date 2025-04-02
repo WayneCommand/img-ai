@@ -8,7 +8,7 @@
 </head>
 <body class="flex items-center justify-center min-h-screen bg-gray-100">
   <div class="container mx-auto flex space-x-4">
-    <div class="flex-1 bg-white p-6 rounded-lg shadow-md">
+    <div class="flex-1 bg-white p-6 rounded-lg shadow-md w-1/2">
       <h1 class="text-center text-2xl font-bold mb-4">AI Image Generator</h1>
       <form id="imageForm">
         <label for="prompt" class="block mt-2 font-bold">Image Description (Prompt):</label>
@@ -39,9 +39,9 @@
       </form>
       <p id="loading" class="hidden mt-4 text-center text-blue-500">Generating your image, please wait...</p>
     </div>
-    <div class="flex-none bg-white p-4 rounded-lg shadow-md">
-      <div id="imageCard" style="display:block;">
-        <img id="generatedImage" src="https://imgstor.waynecommand.com/loadding-1x-1.0s-200px-200px.gif" alt="Loading..." class="max-w-full rounded" style="width: 256px; height: 256px;"/>
+    <div class="flex-none bg-white p-4 rounded-lg shadow-md w-1/2">
+      <div id="imageCard" class="flex items-center justify-center h-full">
+        <img id="generatedImage" src="https://imgstor.waynecommand.com/loadding-1x-1.0s-200px-200px.gif" alt="Loading..." class="max-w-full rounded border-2 border-gray-200" style="width: 80%; height: auto;"/>
       </div>
     </div>
   </div>
