@@ -9,7 +9,7 @@ export default {
           return await handleGenerateImageRequest(request, env);
         }
 
-        return env.assets.fetch(request);
+        return env.ASSETS.fetch(request);
         
     },
 };
@@ -50,9 +50,7 @@ async function handleGenerateImageRequest(request: Request, env: Env) {
     const timeoutId = setTimeout(() => controller.abort(), 120000); // 120秒超时
   
     try {
-      const response = await env.ai.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', inputs, {
-        signal: controller.signal,
-      });
+      const response = await env.AI.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', inputs, {});
   
       return new Response(response, {
         headers: {
