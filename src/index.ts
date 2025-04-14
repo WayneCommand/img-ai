@@ -415,7 +415,7 @@ async function generateAndStoreImage(model: string, prompt: string, requestUrl: 
   }
 }
 
-// 使用 Flux 模型生成并存储图像
+// 使用 Flux(cloudflare) 模型生成并存储图像
 async function generateAndStoreFluxImage(model: string, prompt: string, requestUrl: string): Promise<string> {
   try {
     const jsonBody = { prompt, num_steps: CONFIG.FLUX_NUM_STEPS };
