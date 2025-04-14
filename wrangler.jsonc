@@ -8,7 +8,6 @@
 	"main": "src/index.ts",
 	"name": "img-ai",
 	"upload_source_maps": true,
-	"kv_namespaces": [],
 	"d1_databases": [],
 	"observability": {
 		"enabled": true
@@ -31,7 +30,10 @@
 	"ai": {
 		"binding": "AI"
 	},
-
+	"kv_namespaces": [{
+		"binding": "IMAGE_KV",
+		"id": "fa9a1aa17c924f3f9ee8c8a9167a36a0"
+	}],
 	"assets": {
     	"directory": "./html",
     	"binding": "ASSETS"
@@ -41,9 +43,7 @@
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
 	 */
     "vars": { 
-		"iyuu_token": "",
-		"ftqq_token": "",
-		"api_key": "",
+		"API_KEY": "cloudflare",
 	},
 	/**
 	 * Note: Use secrets to store sensitive data.
