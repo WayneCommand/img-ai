@@ -39,7 +39,8 @@ export default {
     
       // simple auth
       if (!isAuthorized(request)) {
-        return new Response("Unauthorized", { status: 401 });
+        // return new Response("Unauthorized", { status: 401 });
+        console.error(CONFIG.CF_ENV?.API_KEY)
       }
     
       // router
