@@ -1,57 +1,88 @@
 // Constants
 const CONFIG = {
   CF_ENV: undefined as Env | undefined,
-  SF_TOKEN:"sk-xxxxxxxxxx",
+
+  SF_API_URL: "https://api.siliconflow.cn/v1/images/generations",
+  SF_TOKEN:"sk-token",
   CF_IS_TRANSLATE: true,  // 是否启用提示词AI翻译及优化,关闭后将会把提示词直接发送给绘图模型
   CF_TRANSLATE_MODEL: "@cf/qwen/qwen1.5-14b-chat-awq",  // 使用的cf ai模型
   CF_IMG2TEXT_MODEL: "@cf/llava-hf/llava-1.5-7b-hf", // 使用的cf 图生文模型
+  FLUX_NUM_STEPS: 4, // Flux模型的num_steps参数,范围：4-8
 
   USE_EXTERNAL_API: false, // 是否使用自定义API,开启后将使用外部模型生成提示词,需要填写下面三项
   EXTERNAL_API: "", //自定义API地址,例如:https://xxx.com/v1/chat/completions
   EXTERNAL_MODEL: "", // 模型名称,例如:gpt-4o
   EXTERNAL_API_KEY: "", // API密钥
+};
 
-  FLUX_NUM_STEPS: 4, // Flux模型的num_steps参数,范围：4-8
-  CUSTOMER_MODEL_MAP: {
-    "DS-8-CF": "@cf/lykon/dreamshaper-8-lcm",
-    "SD-XL-Bash-CF": "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-    "SD-XL-Lightning-CF": "@cf/bytedance/stable-diffusion-xl-lightning",
-    "FLUX.1-Schnell-CF": "@cf/black-forest-labs/flux-1-schnell",
-    "SF-Kolors": "Kwai-Kolors/Kolors",
-    "SF-FLUX-schnell": "black-forest-labs/FLUX.1-schnell",
-    "SF-SD-35large": "stabilityai/stable-diffusion-3-5-large"
-  },
-  IMAGE_EXPIRATION: 60 * 30 // 图片在 KV 中的过期时间（秒），这里设置为 30 分钟
+const CUSTOMER_MODEL_MAP = {
+  "DS-8-CF": "@cf/lykon/dreamshaper-8-lcm",
+  "SD-XL-Bash-CF": "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+  "SD-XL-Lightning-CF": "@cf/bytedance/stable-diffusion-xl-lightning",
+  "FLUX.1-Schnell-CF": "@cf/black-forest-labs/flux-1-schnell",
+
+  "SF-Kolors": "Kwai-Kolors/Kolors",
+  "SF-FLUX-schnell": "black-forest-labs/FLUX.1-schnell",
+  "SF-SD-35large": "stabilityai/stable-diffusion-3-5-large"
+}
+
+const IMAGE_EXPIRATION = 60 * 30; // 图片在 KV 中的过期时间（秒），这里设置为 30 分钟
+ 
+
+// Main handler
+export default {
+    async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+      // CORS Control (allow all origin.)
+      if (request.method === "OPTIONS") {
+        return handleCORS();
+      }
+    
+      // simple auth
+      if (!isAuthorized(request)) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+    
+      // router
+      const url = new URL(request.url);
+      CONFIG.CF_ENV = env;
+      // init api tokens
+      if (env.SF_TOKEN) CONFIG.SF_TOKEN = env.SF_TOKEN;
+
+      // load models
+      if (url.pathname.endsWith("/v1/models")) {
+        return handleModelsRequest();
+      }
+
+      // chat
+      if (url.pathname.endsWith("/v1/chat/completions") && request.method === "POST") {
+        return handleChatCompletions(request);
+      }
+    
+      // image
+      if (url.pathname.startsWith('/image/')) {
+        const key = url.pathname.split('/').pop();
+        return handleImageRequest(key);
+      } 
+
+      // other request.
+      return new Response("Not Found", { status: 404 });
+    },
 };
 
 
-
-// 入口函数
-async function handleRequest(request: Request): Promise<Response> {
-  if (request.method === "OPTIONS") {
-    return handleCORS();
-  }
-
-  if (!isAuthorized(request)) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  // router
-  const url = new URL(request.url);
-  if (url.pathname.endsWith("/v1/models")) {
-    return handleModelsRequest();
-  }
-  if (url.pathname.endsWith("/v1/chat/completions") && request.method === "POST") {
-    return handleChatCompletions(request);
-  }
-
-  return new Response("Not Found", { status: 404 });
+// 处理模型列表请求
+function handleModelsRequest(): Response {
+  const models = Object.keys(CUSTOMER_MODEL_MAP).map(id => ({ id, object: "model" }));
+  return new Response(JSON.stringify({ data: models, object: "list" }), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
 }
 
 // 返回图片
-async function handleImageRequest(request: Request): Promise<Response> {
-  const url = new URL(request.url);
-  const key = url.pathname.split('/').pop();
+async function handleImageRequest(key: string|undefined): Promise<Response> {
 
   if (!key) {
     return new Response('Image not found', { status: 404 });
@@ -71,19 +102,62 @@ async function handleImageRequest(request: Request): Promise<Response> {
   });
 }
 
-// Main handler
-export default {
-    async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-        CONFIG.CF_ENV=env;
-        const url = new URL(request.url);
-        if (url.pathname.startsWith('/image/')) {
-          return handleImageRequest(request);
-        } else {
-          return handleRequest(request);
-        }
-        
-    },
-};
+// 处理聊天完成请求
+async function handleChatCompletions(request: Request): Promise<Response> {
+  try {
+    const data = await request.json();
+    const { messages, model: requestedModel, stream } = data as { messages: any[], model: string, stream: boolean };
+    // const userMessage = messages.find(msg => msg.role === "user")?.content; 取第一个user
+    const userMessage = messages.slice().reverse().find(msg => msg.role === 'user').content; //取最后一个user
+
+    if (!userMessage) {
+      return new Response(JSON.stringify({ error: "未找到用户消息" }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // 解析多模态内容
+    const { text: rawText, images } = parseMultimodalContent(userMessage);
+    let translatedPrompt, promptModel;
+    const selectedModel = CUSTOMER_MODEL_MAP[requestedModel as keyof typeof CUSTOMER_MODEL_MAP] || CUSTOMER_MODEL_MAP["SD-XL-Lightning-CF"];
+    const isTranslate = extractTranslate(rawText);
+    const cleanedText = cleanPromptString(rawText);
+
+    // 图像优先处理逻辑
+    if (images.length > 0) {
+      // 使用第一张图片生成提示词
+      promptModel = CONFIG.CF_IMG2TEXT_MODEL;
+      const imageDescription = await getLlavaPrompt(images[0], cleanedText || "请描述这张图片");
+      const translationText = isTranslate ? await getTranslationPrompt(cleanedText, promptModel) : cleanedText;
+      translatedPrompt = translationText ? `${imageDescription}, ${translationText}` : imageDescription;
+    } 
+    else{
+      // 原有文本处理流程
+      promptModel = determinePromptModel();
+      
+      translatedPrompt = isTranslate ? 
+        (selectedModel === CUSTOMER_MODEL_MAP["FLUX.1-Schnell-CF"] || requestedModel.startsWith("SF-") ? 
+          await getFluxPrompt(cleanedText, promptModel) : 
+          await getPrompt(cleanedText, promptModel)) : 
+        cleanedText;
+    }
+
+    const imageUrl = selectedModel === CUSTOMER_MODEL_MAP["FLUX.1-Schnell-CF"] ?
+      await generateAndStoreFluxImage(selectedModel, translatedPrompt, request.url) : 
+      requestedModel.startsWith("SF-") ? 
+      await generateAndStoreKolorsImage(selectedModel, translatedPrompt, request.url) :
+      await generateAndStoreImage(selectedModel, translatedPrompt, request.url);
+
+    return stream ? 
+      handleStreamResponse(cleanedText, translatedPrompt, "1024x1024", selectedModel, imageUrl, promptModel) :
+      handleNonStreamResponse(cleanedText, translatedPrompt, "1024x1024", selectedModel, imageUrl, promptModel);
+  } catch (error: unknown) {
+    return new Response(JSON.stringify({ error: "Internal Server Error: " + (error as Error).message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}
+
+function determinePromptModel(): string {
+  return (CONFIG.USE_EXTERNAL_API && CONFIG.EXTERNAL_API && CONFIG.EXTERNAL_MODEL && CONFIG.EXTERNAL_API_KEY) ?
+    CONFIG.EXTERNAL_MODEL : CONFIG.CF_TRANSLATE_MODEL;
+}
 
 // 增强版getLlavaPrompt函数
 async function getLlavaPrompt(imageData: string, textPrompt: string): Promise<string> {
@@ -118,63 +192,6 @@ async function getLlavaPrompt(imageData: string, textPrompt: string): Promise<st
     console.error('LLaVA处理失败:', error);
     return textPrompt; // 失败时返回原始提示
   }
-}
-
-// 处理聊天完成请求
-async function handleChatCompletions(request: Request): Promise<Response> {
-  try {
-    const data = await request.json();
-    const { messages, model: requestedModel, stream } = data as { messages: any[], model: string, stream: boolean };
-    // const userMessage = messages.find(msg => msg.role === "user")?.content; 取第一个user
-    const userMessage = messages.slice().reverse().find(msg => msg.role === 'user').content; //取最后一个user
-
-    if (!userMessage) {
-      return new Response(JSON.stringify({ error: "未找到用户消息" }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-    }
-
-    // 解析多模态内容
-    const { text: rawText, images } = parseMultimodalContent(userMessage);
-    let translatedPrompt, promptModel;
-    const selectedModel = CONFIG.CUSTOMER_MODEL_MAP[requestedModel as keyof typeof CONFIG.CUSTOMER_MODEL_MAP] || CONFIG.CUSTOMER_MODEL_MAP["SD-XL-Lightning-CF"];
-    const isTranslate = extractTranslate(rawText);
-    const cleanedText = cleanPromptString(rawText);
-
-    // 图像优先处理逻辑
-    if (images.length > 0) {
-      // 使用第一张图片生成提示词
-      promptModel = CONFIG.CF_IMG2TEXT_MODEL;
-      const imageDescription = await getLlavaPrompt(images[0], cleanedText || "请描述这张图片");
-      const translationText = isTranslate ? await getTranslationPrompt(cleanedText, promptModel) : cleanedText;
-      translatedPrompt = translationText ? `${imageDescription}, ${translationText}` : imageDescription;
-    } 
-    else{
-      // 原有文本处理流程
-      promptModel = determinePromptModel();
-      
-      translatedPrompt = isTranslate ? 
-        (selectedModel === CONFIG.CUSTOMER_MODEL_MAP["FLUX.1-Schnell-CF"] || requestedModel.startsWith("SF-") ? 
-          await getFluxPrompt(cleanedText, promptModel) : 
-          await getPrompt(cleanedText, promptModel)) : 
-        cleanedText;
-    }
-
-    const imageUrl = selectedModel === CONFIG.CUSTOMER_MODEL_MAP["FLUX.1-Schnell-CF"] ?
-      await generateAndStoreFluxImage(selectedModel, translatedPrompt, request.url) : 
-      requestedModel.startsWith("SF-") ? 
-      await generateAndStoreKolorsImage(selectedModel, translatedPrompt, request.url) :
-      await generateAndStoreImage(selectedModel, translatedPrompt, request.url);
-
-    return stream ? 
-      handleStreamResponse(cleanedText, translatedPrompt, "1024x1024", selectedModel, imageUrl, promptModel) :
-      handleNonStreamResponse(cleanedText, translatedPrompt, "1024x1024", selectedModel, imageUrl, promptModel);
-  } catch (error: unknown) {
-    return new Response(JSON.stringify({ error: "Internal Server Error: " + (error as Error).message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-  }
-}
-
-function determinePromptModel(): string {
-  return (CONFIG.USE_EXTERNAL_API && CONFIG.EXTERNAL_API && CONFIG.EXTERNAL_MODEL && CONFIG.EXTERNAL_API_KEY) ?
-    CONFIG.EXTERNAL_MODEL : CONFIG.CF_TRANSLATE_MODEL;
 }
 
 async function getTranslationPrompt(prompt: string, model: string): Promise<string> {
@@ -367,7 +384,6 @@ async function getCloudflarePrompt(model: string, requestBody: any): Promise<str
   return response.response;
 }
 
-
 // 新增辅助函数：解析多模态消息内容
 function parseMultimodalContent(content: any): { text: string, images: string[] } {
   let textParts: string[] = [];
@@ -405,7 +421,7 @@ async function generateAndStoreImage(model: string, prompt: string, requestUrl: 
     const key = `image_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     
     await CONFIG.CF_ENV?.IMAGE_KV.put(key, imageBuffer, {
-      expirationTtl: CONFIG.IMAGE_EXPIRATION,
+      expirationTtl: IMAGE_EXPIRATION,
       metadata: { contentType: 'image/png' }
     });
 
@@ -427,7 +443,7 @@ async function generateAndStoreFluxImage(model: string, prompt: string, requestU
     const key = `image_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     await CONFIG.CF_ENV?.IMAGE_KV.put(key, imageBuffer, {
-      expirationTtl: CONFIG.IMAGE_EXPIRATION,
+      expirationTtl: IMAGE_EXPIRATION,
       metadata: { contentType: 'image/png' }
     });
 
@@ -446,7 +462,7 @@ async function generateAndStoreKolorsImage(model: string, prompt: string, reques
     const key = `image_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     
     await CONFIG.CF_ENV?.IMAGE_KV.put(key, imageBuffer, {
-      expirationTtl: CONFIG.IMAGE_EXPIRATION,
+      expirationTtl: IMAGE_EXPIRATION,
       metadata: { contentType: 'image/png' }
     });
 
@@ -501,7 +517,7 @@ async function postSfRequest(model: string, prompt: string, height: number, widt
 
   const options = {
     method: 'POST',
-    headers: {Authorization: 'Bearer '+CONFIG.SF_TOKEN, 'Content-Type': 'application/json'},
+    headers: {Authorization: `Bearer ${CONFIG.SF_TOKEN}`, 'Content-Type': 'application/json'},
     body: JSON.stringify({
       model: model,
       prompt: prompt,
@@ -512,8 +528,7 @@ async function postSfRequest(model: string, prompt: string, height: number, widt
     })
   };
 
-  const apiUrl = `https://api.siliconflow.cn/v1/images/generations`;
-  const response = await fetch(apiUrl, options);
+  const response = await fetch(CONFIG.SF_API_URL, options);
   const result: { data: { url: string }[] } = await response.json();
  
   const imageUrl = result.data[0].url;
@@ -524,18 +539,6 @@ async function postSfRequest(model: string, prompt: string, height: number, widt
   }
  
   return imageResponse.body!;
-}
-
-
-// 处理模型列表请求
-function handleModelsRequest(): Response {
-  const models = Object.keys(CONFIG.CUSTOMER_MODEL_MAP).map(id => ({ id, object: "model" }));
-  return new Response(JSON.stringify({ data: models, object: "list" }), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*'
-    }
-  });
 }
 
 // 提取翻译标志
@@ -551,7 +554,6 @@ function cleanPromptString(prompt: string): string {
 }
 
 
-
 // base64 字符串转换为 ArrayBuffer
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binaryString = atob(base64);
@@ -562,7 +564,7 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-// 返回 ArrayBuffer
+// stream 转换为 ArrayBuffer
 async function streamToArrayBuffer(stream: ReadableStream): Promise<ArrayBuffer> {
   const reader = stream.getReader();
   const chunks = [];
