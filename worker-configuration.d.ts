@@ -5,8 +5,8 @@ declare namespace Cloudflare {
 		IMAGE_KV: KVNamespace;
 		AI: Ai;
 		ASSETS: Fetcher;
-        
-		API_KEY: string;
+
+		API_ACCESS_KEY: string;
         SF_TOKEN: string;
 	}
 }

@@ -39,8 +39,7 @@ export default {
     
       // simple auth
       if (!isAuthorized(request)) {
-        // return new Response("Unauthorized", { status: 401 });
-        console.error(CONFIG.CF_ENV?.API_KEY)
+        return new Response("Unauthorized", { status: 401 });
       }
     
       // router
@@ -510,7 +509,7 @@ function handleCORS(): Response {
 // 验证授权
 function isAuthorized(request: Request): boolean {
   const authHeader = request.headers.get("Authorization");
-  return (authHeader !== null) && authHeader.startsWith("Bearer ") && authHeader.split(" ")[1] === CONFIG.CF_ENV?.API_KEY;
+  return (authHeader !== null) && authHeader.startsWith("Bearer ") && authHeader.split(" ")[1] === CONFIG.CF_ENV?.API_ACCESS_KEY;
 }
 
 // 发送POST请求
