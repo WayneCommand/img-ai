@@ -1,9 +1,11 @@
 // Constants
 const CONFIG = {
   CF_ENV: undefined as Env | undefined,
+  API_ACCESS_KEY: "",
 
   SF_API_URL: "https://api.siliconflow.cn/v1/images/generations",
   SF_TOKEN:"sk-token",
+  
   CF_IS_TRANSLATE: true,  // 是否启用提示词AI翻译及优化,关闭后将会把提示词直接发送给绘图模型
   CF_TRANSLATE_MODEL: "@cf/qwen/qwen1.5-14b-chat-awq",  // 使用的cf ai模型
   CF_IMG2TEXT_MODEL: "@cf/llava-hf/llava-1.5-7b-hf", // 使用的cf 图生文模型
@@ -32,6 +34,12 @@ const IMAGE_EXPIRATION = 60 * 30; // 图片在 KV 中的过期时间（秒），
 // Main handler
 export default {
     async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+      const url = new URL(request.url);
+      CONFIG.CF_ENV = env;
+      // init api tokens
+      if (env.SF_TOKEN) CONFIG.SF_TOKEN = env.SF_TOKEN;
+      if (env.API_ACCESS_KEY) CONFIG.API_ACCESS_KEY = env.API_ACCESS_KEY;
+
       // CORS Control (allow all origin.)
       if (request.method === "OPTIONS") {
         return handleCORS();
@@ -43,11 +51,6 @@ export default {
       }
     
       // router
-      const url = new URL(request.url);
-      CONFIG.CF_ENV = env;
-      // init api tokens
-      if (env.SF_TOKEN) CONFIG.SF_TOKEN = env.SF_TOKEN;
-
       // load models
       if (url.pathname.endsWith("/v1/models")) {
         return handleModelsRequest();
@@ -509,7 +512,7 @@ function handleCORS(): Response {
 // 验证授权
 function isAuthorized(request: Request): boolean {
   const authHeader = request.headers.get("Authorization");
-  return (authHeader !== null) && authHeader.startsWith("Bearer ") && authHeader.split(" ")[1] === CONFIG.CF_ENV?.API_ACCESS_KEY;
+  return (authHeader !== null) && authHeader.startsWith("Bearer ") && authHeader.split(" ")[1] === CONFIG.API_ACCESS_KEY;
 }
 
 // 发送POST请求
